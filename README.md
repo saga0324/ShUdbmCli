@@ -19,6 +19,21 @@ ShUdbmCli is a utility for compatible SH EMP Platform feature phones. It communi
 python3 -m pip install pyusb tqdm
 ```
 
+### USB Serial Setup
+
+Before using commands that communicate through the AT Command Port, add the
+phone's USB identifiers to the supported-device configuration of your system's
+USB Serial driver:
+
+- Vendor ID (VID): `0x04DD`
+- Product ID (PID): `0x91C9`
+
+Reload the driver or reconnect the phone after changing the configuration. Make
+sure the phone is exposed as a serial device (for example, `/dev/cu.usbmodem*`
+or `/dev/ttyUSB*`) before running `makeauthsd` or `shusrflag`. If automatic
+detection selects the wrong port, pass the AT Command Port explicitly with
+`--port`.
+
 ## Usage
 
 Probe the connected phone:
@@ -92,10 +107,39 @@ The USB and SD card workflows are mutually exclusive. Do not leave an SD card co
    python3 ShUdbmCli.py makeauthsd
    ```
 
-4. Copy the generated authentication file to the root of the SD card, then insert the card into the phone.
-5. Completely power off the phone.
-6. Hold `0` + `6` + the power key to enter User Data Backup Mode.
-7. Use the phone's keys to select and perform the desired backup or restore operation.
+4. Copy the generated authentication file to the root of the SD card.
+5. Create the following case-sensitive directories and empty placeholder files
+   on the SD card:
+
+   ```text
+   /SHARPDEBUG/
+   ├── SRAM.DAT
+   ├── THERMLOG.DAT
+   └── FLASH/
+       ├── sand00.dat
+       ├── nor00.dat
+       └── nand00.dat
+   ```
+
+   On macOS or Linux, replace `/Volumes/SDCARD` with the actual SD card mount
+   point and run:
+
+   ```bash
+   SD_ROOT=/Volumes/SDCARD
+   mkdir -p "$SD_ROOT/SHARPDEBUG/FLASH"
+   touch "$SD_ROOT/SHARPDEBUG/SRAM.DAT" \
+         "$SD_ROOT/SHARPDEBUG/THERMLOG.DAT" \
+         "$SD_ROOT/SHARPDEBUG/FLASH/sand00.dat" \
+         "$SD_ROOT/SHARPDEBUG/FLASH/nor00.dat" \
+         "$SD_ROOT/SHARPDEBUG/FLASH/nand00.dat"
+   ```
+
+   These files must exist before starting the SD card dump. The phone writes
+   the corresponding dump data into the placeholder files.
+6. Safely eject the SD card and insert it into the phone.
+7. Completely power off the phone.
+8. Hold `0` + `6` + the power key to enter User Data Backup Mode.
+9. Use the phone's keys to select and perform the desired backup or restore operation.
 
 ## Warning
 
