@@ -23,11 +23,7 @@ python3 -m pip install pyusb tqdm
 
 Before using commands that communicate through the AT Command Port, add the
 phone's USB identifiers to the supported-device configuration of your system's
-USB Serial driver:
-
-- Vendor ID (VID): `0x04DD`
-- Product ID (PID): `0x91C9`
-
+USB Serial driver
 Reload the driver or reconnect the phone after changing the configuration. Make
 sure the phone is exposed as a serial device (for example, `/dev/cu.usbmodem*`
 or `/dev/ttyUSB*`) before running `makeauthsd` or `shusrflag`. If automatic
