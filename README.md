@@ -12,11 +12,11 @@ ShUdbmCli is a utility for compatible SH EMP Platform feature phones. It communi
 ## Requirements
 
 - Python 3.10 or newer
-- `pyusb` and `tqdm`
+- `pyusb`, `tqdm`, and `pyserial`
 - A working libusb backend
 
 ```bash
-python3 -m pip install pyusb tqdm
+python3 -m pip install pyusb tqdm pyserial
 ```
 
 ### USB Serial Setup
@@ -25,10 +25,18 @@ Before using commands that communicate through the AT Command Port, add the
 phone's USB identifiers to the supported-device configuration of your system's
 USB Serial driver
 Reload the driver or reconnect the phone after changing the configuration. Make
-sure the phone is exposed as a serial device (for example, `/dev/cu.usbmodem*`
-or `/dev/ttyUSB*`) before running `makeauthsd` or `shusrflag`. If automatic
-detection selects the wrong port, pass the AT Command Port explicitly with
-`--port`.
+sure the phone is exposed as a serial device (for example, `/dev/cu.usbmodem*`,
+`/dev/ttyUSB*`, or `COM3` on Windows) before running `makeauthsd` or `shusrflag`.
+If automatic detection selects the wrong port, pass the AT Command Port explicitly with
+`--port`. Serial communication uses pySerial on Windows, macOS, and Linux.
+
+On Windows, install a compatible USB Serial driver so the AT interface appears
+as a COM port in Device Manager. List ports and query the user flag with:
+
+```powershell
+python -m serial.tools.list_ports
+python ShUdbmCli.py shusrflag status --port COM3
+```
 
 ## Usage
 

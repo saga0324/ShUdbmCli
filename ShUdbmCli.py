@@ -3,18 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import glob
-import os
 import queue
 import re
-import select
 import struct
 import sys
 import tempfile
-import termios
 import threading
 import time
-import tty
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -39,17 +34,7 @@ AT_TERMINATORS = (
     "NO ANSWER",
     "COMMAND NOT SUPPORT",
 )
-AT_BAUD_RATES = {
-    1200: termios.B1200,
-    2400: termios.B2400,
-    4800: termios.B4800,
-    9600: termios.B9600,
-    19200: termios.B19200,
-    38400: termios.B38400,
-    57600: termios.B57600,
-    115200: termios.B115200,
-    230400: getattr(termios, "B230400", 230400),
-}
+AT_BAUD_RATES = (1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400)
 SHUSRFLAG_COMMANDS = {
     "status": "AT*SHUSERFLAG?",
     "on": 'AT*SHUSERFLAG="USRFLAGON","DBMQRZPV"',
@@ -107,49 +92,48 @@ class SerialPort:
     def __init__(self, port: str, baudrate: int = AT_BAUDRATE) -> None:
         self.port = port
         self.baudrate = baudrate
-        self.fd: int | None = None
+        self.connection: Any = None
 
     def open(self) -> None:
         if self.baudrate not in AT_BAUD_RATES:
             supported = ", ".join(str(value) for value in AT_BAUD_RATES)
             raise ToolError(f"Unsupported AT baud rate {self.baudrate}; choose one of: {supported}")
         try:
-            self.fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
-            attributes = termios.tcgetattr(self.fd)
-            attributes[tty.IFLAG] = 0
-            attributes[tty.OFLAG] = 0
-            attributes[tty.CFLAG] = termios.CS8 | termios.CREAD | termios.CLOCAL
-            attributes[tty.LFLAG] = 0
-            attributes[tty.ISPEED] = AT_BAUD_RATES[self.baudrate]
-            attributes[tty.OSPEED] = AT_BAUD_RATES[self.baudrate]
-            termios.tcsetattr(self.fd, termios.TCSANOW, attributes)
-            termios.tcflush(self.fd, termios.TCIOFLUSH)
+            import serial
+        except ImportError as exc:
+            raise ToolError("AT commands require pyserial; install it with: python -m pip install pyserial") from exc
+        try:
+            self.connection = serial.Serial(
+                port=self.port, baudrate=self.baudrate, timeout=0.1,
+                write_timeout=2.0, xonxoff=False, rtscts=False, dsrdtr=False,
+            )
+            self.flush()
         except Exception as exc:
             self.close()
             raise ToolError(f"Cannot open AT port {self.port}: {exc}") from exc
 
     def close(self) -> None:
-        if self.fd is not None:
+        if self.connection is not None:
             try:
-                os.close(self.fd)
-            except OSError:
-                pass
-            self.fd = None
+                self.connection.close()
+            finally:
+                self.connection = None
 
     def flush(self) -> None:
-        if self.fd is not None:
-            termios.tcflush(self.fd, termios.TCIOFLUSH)
+        if self.connection is not None:
+            self.connection.reset_input_buffer()
+            self.connection.reset_output_buffer()
 
     def write(self, data: bytes) -> int:
-        if self.fd is None:
+        if self.connection is None:
             raise ToolError("AT port is not open")
-        return os.write(self.fd, data)
+        return self.connection.write(data)
 
     def read(self, size: int = 1024, timeout: float = 0.1) -> bytes:
-        if self.fd is None:
+        if self.connection is None:
             raise ToolError("AT port is not open")
-        readable, _, _ = select.select([self.fd], [], [], timeout)
-        return os.read(self.fd, size) if readable else b""
+        self.connection.timeout = timeout
+        return self.connection.read(size)
 
 
 class ATDevice:
@@ -175,7 +159,7 @@ class ATDevice:
 
     def _reader_loop(self) -> None:
         raw_buffer = b""
-        while self.running and self.serial.fd is not None:
+        while self.running and self.serial.connection is not None:
             try:
                 chunk = self.serial.read(timeout=0.05)
             except Exception:
@@ -890,15 +874,16 @@ def run_probe(args: argparse.Namespace) -> int:
 
 
 def list_candidate_at_ports() -> list[str]:
+    try:
+        from serial.tools import list_ports
+    except ImportError as exc:
+        raise ToolError("AT commands require pyserial; install it with: python -m pip install pyserial") from exc
     ignored = {"/dev/cu.Bluetooth-Incoming-Port", "/dev/cu.debug-console"}
-    ports = [path for path in sorted(glob.glob("/dev/cu.*")) if path not in ignored]
-    accessible = [path for path in ports if os.access(path, os.R_OK | os.W_OK)]
-    preferred = [
-        path
-        for path in accessible
-        if any(token in path.casefold() for token in ("usbmodem", "usbserial", "uart", "slab", "wch", "usb"))
-    ]
-    return preferred + [path for path in accessible if path not in preferred]
+    ports = [port for port in sorted(list_ports.comports(), key=lambda port: port.device) if port.device not in ignored]
+    sharp = [port for port in ports if (port.vid, port.pid) == (USB_VID, USB_PID)]
+    usb = [port for port in ports if port.vid is not None and port not in sharp]
+    other = [port for port in ports if port not in sharp and port not in usb]
+    return [port.device for port in sharp + usb + other]
 
 
 def connected_at_device(args: argparse.Namespace) -> ATDevice:
